@@ -1,19 +1,36 @@
 import praw
 from praw.exceptions import APIException
 import json
+import joblib
+from keras.models import model_from_json
+
 
 username = "ragedetectorbot"
 page = "https://github.com/lasersquirrel/ragedetectorbot"
+
+### LOAD IN REQUIRED FILES FOR CYBER AGGRESSION DETECTIOn
+cyber_tokenizer = joblib.load("./model/cyber_tokenizer.joblib")
+json_file = open("./model/cyber_model.json")
+model_json = json_file.read()
+json_file.close()
+cyber_model = model_from_json(model_json)
+cyber_model.load_weights("./model/cyber_model.h5")
+cyber_model._make_predict_function()
 
 reddit = praw.Reddit(username)
 
 def sentiment_check(msg):
     """Sentiment checking stuff."""
+    tokenized_msg = cyber_tokenizer.texts_to_matrix([msg])
+    cyber_prediction  = cyber_model.predict_proba(tokenized_msg)
+    short_agro_value = int(cyber_prediction[0][1]*100)
 
-    # Check sentiment
-    # Have something like: end_msg = f"I am {sentiment*100}% sure that this is angry."
-
-    end_msg = "" # Temporarily added to avoid pylint errors
+    if short_agro_value > 59:
+        end_msg = f"Rage bot says you need to slow your roll bro... (Rage Level: {short_agro_value}%)"
+    elif short_agro_value < 41:
+        end_msg = f"Rage bot says nice chilling bro... (Rage Level: {short_agro_value}%)"
+    else:
+        end_msg = f"Rage bot could not assess rage level. (Rage Level: {short_agro_value}%)"
 
     footer = f"  \n\n^(Bleep bloop, I'm a bot! Mention me to check sentiment on comments/posts. |)  [^(GitHub page)]({page})"
     end_msg += footer
@@ -31,7 +48,6 @@ f.close()
 for message in reddit.inbox.stream():
     # Check if it's a mention
     if "u/"+username in message.body:
-        print(message.parent().title)
         # Different attribute names for comments and text posts
         try:
             og = message.parent().body
@@ -39,7 +55,10 @@ for message in reddit.inbox.stream():
         except AttributeError:
             try:
                 og = message.parent().selftext
-                check = sentiment_check(og)
+                if og != "":
+                    check = sentiment_check(og)
+                else:
+                    raise AttributeError("Continue")
             except AttributeError:
                 try:
                     og = message.parent().title
